@@ -5,6 +5,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+// parse all the arguments entered on the command line
 char **parse(char *line) {
   char **args = malloc(10 * sizeof(char *));
   int i = 0;
@@ -16,10 +17,12 @@ char **parse(char *line) {
   args[i] = NULL;
   return args;
 }
+
+// handle builtin commands in parent process
 int handle_builtins(char **args) {
   if (strcmp(args[0], "cd") == 0) {
     if (chdir(args[1]) != 0)
-      perror("cd failed"); 
+      perror("cd failed");
     return 1;
   } else if (strcmp(args[0], "exit") == 0) {
     exit(0);
@@ -28,6 +31,57 @@ int handle_builtins(char **args) {
   return 0;
 }
 
+// pipe handling
+//
+// find the pipe and split two parts of args
+char **find_pipe(char **args) {
+  int i = 0;
+  while (args[i] != NULL) {
+    if (strcmp(args[i], "|") == 0) {
+      args[i] = NULL;
+      return &args[i + 1];
+    }
+    i++;
+  }
+  return NULL;
+}
+
+// execute the parallel commands specified using pipes
+void execute_pipe(char **left, char **right) {
+  int fds[2];
+  pipe(fds);
+  pid_t child1 = fork();
+  if (child1 == 0) {
+    close(fds[0]);
+    dup2(fds[1], STDOUT_FILENO);
+    close(fds[1]);
+    execvp(left[0], left);
+    perror("execvp failed");
+    exit(1);
+  } else if (child1 < 0) {
+    perror("error forking child");
+    exit(1);
+  }
+  pid_t child2 = fork();
+  if (child2 == 0) {
+    close(fds[1]);
+    dup2(fds[0], STDIN_FILENO);
+    close(fds[0]);
+    execvp(right[0], right);
+    perror("execvp failed");
+    exit(1);
+  } else if (child2 < 0) {
+    perror("error forking child");
+    exit(1);
+  }
+  close(fds[0]);
+  close(fds[1]);
+  int status;
+  waitpid(child1, &status,0);
+  waitpid(child2, &status,0);
+}
+
+// execute the external commands with child process using fork() and execvp()
 void execute(char **args) {
 
   pid_t pid = fork();
@@ -57,14 +111,21 @@ int main() {
     char **args = parse(line);
     if (args[0] == NULL) {
       perror("no args specified");
-free(line);
-free(args);
+      free(line);
+      free(args);
       continue;
     }
 
     if (handle_builtins(args)) {
       free(args);
       free(line);
+      continue;
+    }
+    char **nextcmd = find_pipe(args);
+    if (nextcmd != NULL) {
+      execute_pipe(args, nextcmd);
+      free(line);
+      free(args);
       continue;
     }
     execute(args);
