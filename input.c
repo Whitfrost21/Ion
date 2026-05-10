@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,18 +78,89 @@ void execute_pipe(char **left, char **right) {
   close(fds[0]);
   close(fds[1]);
   int status;
-  waitpid(child1, &status,0);
-  waitpid(child2, &status,0);
+  waitpid(child1, &status, 0);
+  waitpid(child2, &status, 0);
+}
+
+// struct to redirect the operators in fd
+typedef struct {
+  char *input_file;
+  char *output_file;
+  int isappend;
+} redirect;
+
+// parse_redirects() parses the file operators and file names to perform the
+// file operations
+redirect parse_redirects(char **args) {
+  redirect parseddata = {NULL, NULL,
+                         0}; // default redirects,avoid garbage values be safe.
+  int i = 0;
+  while (args[i] != NULL) {
+    if (strcmp(args[i], ">>") == 0) {
+      parseddata.output_file = args[i + 1];
+      parseddata.isappend = 1; // open in append to write
+      args[i] = NULL;
+      args[i + 1] = NULL;
+    } else if (strcmp(args[i], ">") == 0) {
+      parseddata.output_file = args[i + 1];
+      parseddata.isappend = 0; // open in overwrite to write
+      args[i] = NULL;
+      args[i + 1] = NULL;
+    } else if (strcmp(args[i], "<") == 0) {
+      parseddata.input_file = args[i + 1];
+      parseddata.isappend = 0; // open in readonly
+      args[i] = NULL;
+      args[i + 1] = NULL;
+    }
+    i++;
+  }
+  return parseddata;
+}
+
+// apply_redirects() opens the file in specified redirects and performs the
+// operation
+void apply_redirects(redirect r) {
+
+  if (r.output_file) {
+    if (r.isappend) {
+      int fd = open(r.output_file, O_WRONLY | O_CREAT | O_APPEND, 0644);
+      if (fd < 0) {
+        perror("open failed");
+        exit(1);
+      }
+      dup2(fd, STDOUT_FILENO);
+      close(fd);
+
+    } else {
+      int fd = open(r.output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+      if (fd < 0) {
+        perror("open failed");
+        exit(1);
+      }
+      dup2(fd, STDOUT_FILENO);
+      close(fd);
+    }
+  }
+  if (r.input_file) {
+    int fd = open(r.input_file, O_RDONLY, 0644);
+    if (fd < 0) {
+      perror("open failed");
+      exit(1);
+    }
+    dup2(fd, STDIN_FILENO);
+    close(fd);
+  }
 }
 
 // execute the external commands with child process using fork() and execvp()
 void execute(char **args) {
-
+  redirect r = parse_redirects(args);
   pid_t pid = fork();
   if (pid < 0) {
     printf("error forking child\n");
     exit(0);
   } else if (pid == 0) {
+    apply_redirects(r);
     execvp(args[0], args);
     perror("execvp failed");
     exit(1);
