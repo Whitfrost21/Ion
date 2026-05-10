@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -160,6 +161,8 @@ void execute(char **args) {
     printf("error forking child\n");
     exit(0);
   } else if (pid == 0) {
+    signal(SIGINT, SIG_DFL);
+    signal(SIGQUIT, SIG_DFL);
     apply_redirects(r);
     execvp(args[0], args);
     perror("execvp failed");
@@ -171,6 +174,9 @@ void execute(char **args) {
 }
 
 int main() {
+
+  signal(SIGINT, SIG_IGN);
+  signal(SIGQUIT, SIG_IGN);
   while (1) {
     char *line = malloc(200);
     printf("\n myshell>");
