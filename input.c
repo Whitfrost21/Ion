@@ -5,8 +5,8 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <unistd.h>
-
 // parse all the arguments entered on the command line
 char **parse(char *line) {
   char **args = malloc(10 * sizeof(char *));
@@ -164,6 +164,7 @@ void execute(char **args) {
     signal(SIGINT, SIG_DFL);
     signal(SIGQUIT, SIG_DFL);
     apply_redirects(r);
+    write(STDOUT_FILENO, "\r\n", 2);
     execvp(args[0], args);
     perror("execvp failed");
     exit(1);
@@ -173,16 +174,51 @@ void execute(char **args) {
   }
 }
 
+// termios to enter raw mode
+struct termios orig_termios; // saves original term settings
+
+void disable_raw_mode() {
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios); // set the orig_termios
+                                                     // back
+}
+
+// enable raw mode after saving the orig_termios
+void enable_raw_mode() {
+  tcgetattr(STDIN_FILENO, &orig_termios);
+  atexit(disable_raw_mode);
+
+  struct termios raw = orig_termios;
+  raw.c_lflag &=
+      ~(ECHO | ICANON); // bit 1 and bit 3 of lower nibble i.e 0xA ~= 0x5 to
+                        // clear only echo and canonical modes.
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
 int main() {
 
   signal(SIGINT, SIG_IGN);
   signal(SIGQUIT, SIG_IGN);
+  enable_raw_mode();
   while (1) {
     char *line = malloc(200);
-    printf("\n myshell>");
-    if (fgets(line, 200, stdin) == NULL) {
-      free(line);
-      break;
+    printf("\r\n myshell>");
+    fflush(stdout);
+    int i = 0;
+    char c;
+    while (1) // read until enter
+    {
+      read(STDIN_FILENO, &c, 1);
+      if (c == '\r'||c=='\n') {
+        line[i] = '\0';
+        break;
+      } else if (c == 127 && i > 0) // handle backspace
+      {
+        i--;
+        write(STDOUT_FILENO, "\b \b", 3);
+      } else {
+        write(STDOUT_FILENO, &c, 1); // print the typed char
+        line[i++] = c;
+      }
     }
 
     line[strcspn(line, "\n")] = '\0';
