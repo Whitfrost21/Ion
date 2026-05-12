@@ -153,27 +153,6 @@ void apply_redirects(redirect r) {
   }
 }
 
-// execute the external commands with child process using fork() and execvp()
-void execute(char **args) {
-  redirect r = parse_redirects(args);
-  pid_t pid = fork();
-  if (pid < 0) {
-    printf("error forking child\n");
-    exit(0);
-  } else if (pid == 0) {
-    signal(SIGINT, SIG_DFL);
-    signal(SIGQUIT, SIG_DFL);
-    apply_redirects(r);
-    write(STDOUT_FILENO, "\r\n", 2);
-    execvp(args[0], args);
-    perror("execvp failed");
-    exit(1);
-  } else {
-    int status;
-    waitpid(pid, &status, 0);
-  }
-}
-
 // termios to enter raw mode
 struct termios orig_termios; // saves original term settings
 
@@ -194,6 +173,27 @@ void enable_raw_mode() {
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
+
+// execute the external commands with child process using fork() and execvp()
+void execute(char **args) {
+  redirect r = parse_redirects(args);
+  pid_t pid = fork();
+  if (pid < 0) {
+    printf("error forking child\n");
+    exit(0);
+  } else if (pid == 0) {
+    signal(SIGINT, SIG_DFL);
+    signal(SIGQUIT, SIG_DFL);
+    apply_redirects(r);
+    execvp(args[0], args);
+    perror("execvp failed");
+    enable_raw_mode();
+    exit(1);
+  } else {
+    int status;
+    waitpid(pid, &status, 0);
+  }
+}
 int main() {
 
   signal(SIGINT, SIG_IGN);
@@ -201,15 +201,16 @@ int main() {
   enable_raw_mode();
   while (1) {
     char *line = malloc(200);
-    printf("\r\n myshell>");
+    printf("\r\nmyshell>");
     fflush(stdout);
     int i = 0;
     char c;
     while (1) // read until enter
     {
       read(STDIN_FILENO, &c, 1);
-      if (c == '\r'||c=='\n') {
+      if (c == '\r' || c == '\n') {
         line[i] = '\0';
+        write(STDOUT_FILENO, "\n", 1); // set alignment (back to col 0)
         break;
       } else if (c == 127 && i > 0) // handle backspace
       {
@@ -220,6 +221,7 @@ int main() {
         line[i++] = c;
       }
     }
+
 
     line[strcspn(line, "\n")] = '\0';
     char **args = parse(line);
