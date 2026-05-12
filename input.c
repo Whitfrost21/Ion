@@ -170,9 +170,9 @@ void enable_raw_mode() {
   raw.c_lflag &=
       ~(ECHO | ICANON); // bit 1 and bit 3 of lower nibble i.e 0xA ~= 0x5 to
                         // clear only echo and canonical modes.
+  raw.c_lflag |= ISIG;
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
-
 
 // execute the external commands with child process using fork() and execvp()
 void execute(char **args) {
@@ -212,16 +212,26 @@ int main() {
         line[i] = '\0';
         write(STDOUT_FILENO, "\n", 1); // set alignment (back to col 0)
         break;
-      } else if (c == 127 && i > 0) // handle backspace
+      } else if (c == 3) // ctrl-c
       {
-        i--;
-        write(STDOUT_FILENO, "\b \b", 3);
+        i = 0;
+        line[0] = '\0';
+        break;
+      } else if (c == 4 && i == 0) // ctrl-d
+      {
+        disable_raw_mode();
+        exit(0);
+      } else if (c == 127) // handle backspace
+      {
+        if (i > 0) {
+          i--;
+          write(STDOUT_FILENO, "\b \b", 3);
+        }
       } else {
         write(STDOUT_FILENO, &c, 1); // print the typed char
         line[i++] = c;
       }
     }
-
 
     line[strcspn(line, "\n")] = '\0';
     char **args = parse(line);
