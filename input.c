@@ -22,14 +22,109 @@ char **parse(char *line) {
   return args;
 }
 
+// jump directories
+// to jump to recently visited directories directly save the visited directories
+// in ~/.ion_history file , when jumping directories search for most matching
+// directory in .ion_history and chdir() it.
+
+void save_jump(const char *path) {
+  char filepath[512];
+  snprintf(filepath, sizeof(filepath), "%s/.ion_history", getenv("HOME"));
+  char paths[100][512];
+  int counts[100];
+  int total = 0;
+  FILE *file = fopen(filepath, "r");
+  if (file == NULL) {
+    perror("failed opening file");
+    return;
+  }
+  char buffer[512];
+  while (fgets(buffer, sizeof(buffer), file) != NULL) {
+    sscanf(buffer, "%[^|]|%d", paths[total], &counts[total]);
+    paths[total][strcspn(paths[total], "\n")] = '\0';
+    total++;
+  }
+  fclose(file);
+
+  int found = 0;
+  for (int i = 0; i < total; i++) {
+    if (strcmp(paths[i], path) == 0) {
+      counts[i]++;
+      found = 1;
+    }
+  }
+  if (!found) {
+    strcpy(paths[total], path);
+    counts[total] = 1;
+    total++;
+  }
+
+  FILE *fw = fopen(filepath, "w");
+  if (fw == NULL) {
+    perror("failed opening file");
+    return;
+  }
+  for (int i = 0; i < total; i++) {
+    fprintf(fw, "%s|%d\n", paths[i], counts[i]);
+  }
+  fclose(fw);
+}
+
+void jump(char *partial) {
+  char filepath[512];
+  snprintf(filepath, sizeof(filepath), "%s/.ion_history", getenv("HOME"));
+  char paths[100][512];
+  int counts[100];
+  int total = 0;
+  FILE *file = fopen(filepath, "r");
+  if (file == NULL) {
+    perror("failed opening file");
+    return;
+  }
+  char buffer[512];
+  while (fgets(buffer, sizeof(buffer), file) != NULL) {
+    sscanf(buffer, "%[^|]|%d", paths[total], &counts[total]);
+    paths[total][strcspn(paths[total], "\n")] = '\0';
+    total++;
+  }
+  fclose(file);
+
+  int bestcount = 0;
+  int bestindex = -1;
+  for (int i = 0; i < total; i++) {
+    if (strstr(paths[i], partial) != NULL) {
+      if (counts[i] > bestcount) {
+        bestcount = counts[i];
+        bestindex = i;
+      }
+    }
+  }
+  if (bestindex == -1) {
+    printf("\r\nno recent visits to %s", partial);
+    return;
+  }
+  printf("\rinside %s",paths[bestindex]);
+  chdir(paths[bestindex]);
+}
+
 // handle builtin commands in parent process
 int handle_builtins(char **args) {
   if (strcmp(args[0], "cd") == 0) {
     if (chdir(args[1]) != 0)
       perror("cd failed");
+    char cwd[512];
+    getcwd(cwd, sizeof(cwd));
+    save_jump(cwd);
     return 1;
   } else if (strcmp(args[0], "exit") == 0) {
     exit(0);
+    return 1;
+  }else if(strcmp(args[0], "j")==0){
+    if(args[1]==NULL){
+      printf("\r\nusage: j<partial path> jump to recently visited dir");
+      return 1;
+    }
+    jump(args[1]);
     return 1;
   }
   return 0;
