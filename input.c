@@ -1,3 +1,4 @@
+#include <dirent.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
@@ -7,6 +8,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+
 // parse all the arguments entered on the command line
 char **parse(char *line) {
   char **args = malloc(10 * sizeof(char *));
@@ -194,6 +196,35 @@ void execute(char **args) {
     waitpid(pid, &status, 0);
   }
 }
+
+// tab completions
+// auto complete the partial commands or show options
+char **get_completions(char *partial, int *count) {
+  char **options = malloc(100 * sizeof(char *));
+  *count = 0;
+  char *envpath = getenv("PATH");
+  char *pathcopy = strdup(envpath);
+  char *dirpath = strtok(pathcopy, ":");
+  DIR *dir;
+  struct dirent *entry;
+  while (dirpath != NULL) {
+    dir = opendir(dirpath);
+    if (dir == NULL) {
+      dirpath = strtok(NULL, ":");
+      continue;
+    }
+    while ((entry = readdir(dir)) != NULL) {
+      if (strncmp(entry->d_name, partial, strlen(partial)) == 0) {
+        options[*count] = strdup(entry->d_name);
+        (*count)++;
+      }
+    }
+    closedir(dir);
+    dirpath = strtok(NULL, ":");
+  }
+  return options;
+}
+
 int main() {
 
   signal(SIGINT, SIG_IGN);
@@ -221,11 +252,45 @@ int main() {
       {
         disable_raw_mode();
         exit(0);
+
+        // Rule:any special characters(backspace,tab) must be fully handled
+        // before reaching the else block , otherwise it leaks into buffer and
+        // gets printed or stored causing issues and segfaults in other
+        // operations.
+
       } else if (c == 127) // handle backspace
       {
         if (i > 0) {
           i--;
           write(STDOUT_FILENO, "\b \b", 3);
+        }
+      } else if (c == 9) // tab autocomplete case
+      {
+        if (i <= 0)
+          continue;
+        line[i] = '\0'; // terminate with null
+        int count = 0;
+        char **matches = get_completions(line, &count);
+        if (count == 1) // exact match clear the line and print match
+        {
+          for (int j = 0; j < i; j++)
+            write(STDOUT_FILENO, "\b \b", 3);
+          write(STDOUT_FILENO, matches[0], strlen(matches[0]));
+          strcpy(line, matches[0]);
+          i = strlen(matches[0]);
+        } else if (count > 1) // multiple matches display all and reprint prompt
+                              // and line
+        {
+          write(STDOUT_FILENO, "\r\n", 2);
+          for (int j = 0; j < count; j++) {
+            write(STDOUT_FILENO, matches[j], strlen(matches[j]));
+            write(STDOUT_FILENO, "  ", 2);
+            free(matches[j]); // free after use
+          }
+          free(matches); // free array
+          char *prompt = "\r\nmyshell>";
+          write(STDOUT_FILENO, prompt, strlen(prompt));
+          write(STDOUT_FILENO, line, i);
         }
       } else {
         write(STDOUT_FILENO, &c, 1); // print the typed char
