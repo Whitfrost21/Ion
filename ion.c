@@ -107,29 +107,6 @@ void jump(char *partial) {
   chdir(paths[bestindex]);
 }
 
-// handle builtin commands in parent process
-int handle_builtins(char **args) {
-  if (strcmp(args[0], "cd") == 0) {
-    if (chdir(args[1]) != 0)
-      perror("cd failed");
-    char cwd[512];
-    getcwd(cwd, sizeof(cwd));
-    save_jump(cwd);
-    return 1;
-  } else if (strcmp(args[0], "exit") == 0) {
-    exit(0);
-    return 1;
-  } else if (strcmp(args[0], "j") == 0) {
-    if (args[1] == NULL) {
-      printf("\r\nusage: j<partial path> jump to recently visited dir");
-      return 1;
-    }
-    jump(args[1]);
-    return 1;
-  }
-  return 0;
-}
-
 // pipe handling
 //
 // find the pipe and split two parts of args
@@ -334,6 +311,102 @@ char **get_completions(char *partial, int *count) {
   return options;
 }
 
+// simple structure to store files and directories
+struct Direntry {
+  char *name;
+  int is_dir;
+};
+
+// comparing function to sort entries in tree
+int cmp(const void *a, const void *b) {
+  return strcmp(((struct Direntry *)a)->name, ((struct Direntry *)b)->name);
+}
+
+// tree
+// generates a tree view of specified path with maxdepth
+void tree(const char *path, int depth, int maxdepth) {
+  if (depth >= maxdepth)
+    return;
+
+  struct Direntry *entries = malloc(512 * sizeof(struct Direntry));
+  int count = 0;
+  DIR *dir;
+  struct dirent *entry;
+  dir = opendir(path);
+  if (dir == NULL) {
+    perror("failed opening dir");
+    return;
+  }
+  while ((entry = readdir(dir)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+      continue;
+    entries[count].name = strdup(entry->d_name);
+    entries[count].is_dir = (entry->d_type == DT_DIR);
+    count++;
+  }
+  qsort(entries, count, sizeof(struct Direntry), cmp);
+
+  for (int i = 0; i < count; i++) {
+    printf("\n");
+    for (int j = 0; j < depth; j++) // indentation (no .of depth)
+      printf("│   ");
+    if (i == count - 1) { // last entry
+      printf("└── %s", entries[i].name);
+    }else{
+    printf("├── %s", entries[i].name);
+    }
+    if (entries[i].is_dir) {
+      char fullpath[512]; // build the path
+      snprintf(fullpath, sizeof(fullpath), "%s/%s", path, entries[i].name);
+      tree(fullpath, depth + 1, maxdepth); // recursed for sub directories
+    }
+  }
+
+  for (int i = 0; i < count; i++) {
+    free(entries[i].name);
+  }
+  free(entries);
+  closedir(dir);
+}
+
+// handle builtin commands in parent process
+int handle_builtins(char **args) {
+  if (strcmp(args[0], "cd") == 0) {
+    if (chdir(args[1]) != 0)
+      perror("cd failed");
+    char cwd[512];
+    getcwd(cwd, sizeof(cwd));
+    save_jump(cwd);
+    return 1;
+  } else if (strcmp(args[0], "exit") == 0) {
+    exit(0);
+    return 1;
+  } else if (strcmp(args[0], "j") == 0) {
+    if (args[1] == NULL) {
+      printf("\r\nusage: j<partial path> jump to recently visited dir");
+      return 1;
+    }
+    jump(args[1]);
+    return 1;
+  } else if (strcmp(args[0], "tree") == 0) {
+    char cwd[512];
+    getcwd(cwd, sizeof(cwd));
+    if (args[1] == NULL) {
+      tree(cwd, 0, 1);
+      return 1;
+    } else {
+      int depth = atoi(args[1]);
+      if (depth <= 0) {
+        printf("\r\nusage: tree <depth>");
+        return 1;
+      }
+      tree(cwd, 0, depth);
+      return 1;
+    }
+  }
+  return 0;
+}
+
 int main() {
 
   signal(SIGINT, SIG_IGN);
@@ -407,8 +480,8 @@ int main() {
       } else if (c == 27) // escape sequence up,down,->,<-
       {
         char seq[2];
-        read(STDIN_FILENO, &seq[0], 1);//[
-        read(STDIN_FILENO, &seq[1], 1);//any of A,B,C,D 
+        read(STDIN_FILENO, &seq[0], 1); //[
+        read(STDIN_FILENO, &seq[1], 1); // any of A,B,C,D
         if (seq[0] == '[') {
           switch (seq[1]) {
           case 'A':
@@ -428,7 +501,7 @@ int main() {
     }
 
     line[strcspn(line, "\n")] = '\0';
-    char **args = parse(line);
+    char **args = parse(line); // parse arguments
     if (args[0] == NULL) {
       perror("no args specified");
       free(line);
@@ -436,19 +509,19 @@ int main() {
       continue;
     }
 
-    if (handle_builtins(args)) {
+    if (handle_builtins(args)) { // handle builtin commands
       free(args);
       free(line);
       continue;
     }
-    char **nextcmd = find_pipe(args);
+    char **nextcmd = find_pipe(args); // handle pipes
     if (nextcmd != NULL) {
       execute_pipe(args, nextcmd);
       free(line);
       free(args);
       continue;
     }
-    execute(args);
+    execute(args); // execute commands
     // for (int i = 0; args[i] != NULL; i++) {
     //   printf("%s\n", args[i]);
     // }

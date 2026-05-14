@@ -1,2 +1,2 @@
-ion :input.c 
-	gcc -Wall -Wextra input.c -o ion
+ion :ion.c 
+	gcc -Wall -Wextra ion.c -o ion
