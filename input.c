@@ -103,7 +103,7 @@ void jump(char *partial) {
     printf("\r\nno recent visits to %s", partial);
     return;
   }
-  printf("\rinside %s",paths[bestindex]);
+  printf("\rinside %s", paths[bestindex]);
   chdir(paths[bestindex]);
 }
 
@@ -119,8 +119,8 @@ int handle_builtins(char **args) {
   } else if (strcmp(args[0], "exit") == 0) {
     exit(0);
     return 1;
-  }else if(strcmp(args[0], "j")==0){
-    if(args[1]==NULL){
+  } else if (strcmp(args[0], "j") == 0) {
+    if (args[1] == NULL) {
       printf("\r\nusage: j<partial path> jump to recently visited dir");
       return 1;
     }
@@ -295,7 +295,7 @@ void execute(char **args) {
 // tab completions
 // auto complete the partial commands or show options
 char **get_completions(char *partial, int *count) {
-  char **options = malloc(100 * sizeof(char *));
+  char **options = malloc(1000 * sizeof(char *));
   *count = 0;
   char *envpath = getenv("PATH");
   char *pathcopy = strdup(envpath);
@@ -317,6 +317,20 @@ char **get_completions(char *partial, int *count) {
     closedir(dir);
     dirpath = strtok(NULL, ":");
   }
+  // current working dir completions
+  char cwd[512];
+  getcwd(cwd, sizeof(cwd));
+  DIR *cwdir = opendir(cwd);
+  if (cwdir != NULL) {
+    while ((entry = readdir(cwdir)) != NULL) {
+      if (strncmp(entry->d_name, partial, strlen(partial)) == 0) {
+        options[*count] = strdup(entry->d_name);
+        (*count)++;
+      }
+    }
+    closedir(cwdir);
+  }
+  free(pathcopy);
   return options;
 }
 
@@ -380,12 +394,32 @@ int main() {
           for (int j = 0; j < count; j++) {
             write(STDOUT_FILENO, matches[j], strlen(matches[j]));
             write(STDOUT_FILENO, "  ", 2);
-            free(matches[j]); // free after use
           }
-          free(matches); // free array
           char *prompt = "\r\nmyshell>";
           write(STDOUT_FILENO, prompt, strlen(prompt));
           write(STDOUT_FILENO, line, i);
+        }
+
+        for (int j = 0; j < count; j++) {
+          free(matches[j]); // free after use
+        }
+        free(matches);    // free array
+      } else if (c == 27) // escape sequence up,down,->,<-
+      {
+        char seq[2];
+        read(STDIN_FILENO, &seq[0], 1);//[
+        read(STDIN_FILENO, &seq[1], 1);//any of A,B,C,D 
+        if (seq[0] == '[') {
+          switch (seq[1]) {
+          case 'A':
+            break;
+          case 'B':
+            break;
+          case 'C':
+            break;
+          case 'D':
+            break;
+          }
         }
       } else {
         write(STDOUT_FILENO, &c, 1); // print the typed char
