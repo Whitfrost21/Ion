@@ -92,8 +92,16 @@ void jump(char *partial) {
   int bestcount = 0;
   int bestindex = -1;
   for (int i = 0; i < total; i++) {
-    if (strstr(paths[i], partial) != NULL) {
-      if (counts[i] > bestcount) {
+    char *lastpart =
+        strrchr(paths[i], '/'); // the last part of path(directory name)
+    if (lastpart != NULL && *(lastpart + 1) != '\0') // ensure it's not root
+      lastpart++;
+    else // root case
+      lastpart = paths[i];
+    if (strstr(lastpart, partial) != NULL) { // occurrence of partial in
+                                             // lastpart
+      if (counts[i] > bestcount) { // decide switch by counts(no. of visits) for
+                                   // same named directories
         bestcount = counts[i];
         bestindex = i;
       }
@@ -311,6 +319,26 @@ char **get_completions(char *partial, int *count) {
   return options;
 }
 
+char **get_filecompletions(char *partial, int *count) {
+  char **options = malloc(512 * sizeof(char *));
+  *count = 0;
+  char cwd[512];
+  getcwd(cwd, sizeof(cwd));
+  DIR *dir;
+  struct dirent *entry;
+  dir = opendir(cwd);
+  if (dir != NULL) {
+    while ((entry = readdir(dir)) != NULL) {
+      if (strncmp(entry->d_name, partial, strlen(partial)) == 0) {
+        options[*count] = strdup(entry->d_name);
+        (*count)++;
+      }
+    }
+  }
+  closedir(dir);
+  return options;
+}
+
 // simple structure to store files and directories
 struct Direntry {
   char *name;
@@ -352,8 +380,8 @@ void tree(const char *path, int depth, int maxdepth) {
       printf("│   ");
     if (i == count - 1) { // last entry
       printf("└── %s", entries[i].name);
-    }else{
-    printf("├── %s", entries[i].name);
+    } else {
+      printf("├── %s", entries[i].name);
     }
     if (entries[i].is_dir) {
       char fullpath[512]; // build the path
@@ -413,8 +441,17 @@ int main() {
   signal(SIGQUIT, SIG_IGN);
   enable_raw_mode();
   while (1) {
+    char cwd[512];
+    getcwd(cwd, sizeof(cwd));
+    char todisp[512];
+    char *home = getenv("HOME");
+    if (strncmp(cwd, home, strlen(home)) == 0) {
+      snprintf(todisp, sizeof(todisp), "~%s", cwd + strlen(home));
+    } else {
+      strcpy(todisp, cwd);
+    }
     char *line = malloc(200);
-    printf("\r\nmyshell>");
+    printf("\r\n%s >", todisp);
     fflush(stdout);
     int i = 0;
     char c;
@@ -452,7 +489,16 @@ int main() {
           continue;
         line[i] = '\0'; // terminate with null
         int count = 0;
-        char **matches = get_completions(line, &count);
+        char *spaces =
+            strchr(line, ' '); // space=file completions,else cmd completions
+        char **matches;
+        if (spaces == NULL) {
+          matches = get_completions(line, &count);
+        } else {
+          char *partial = strchr(line, ' ') + 1;
+          matches = get_filecompletions(partial, &count);
+        }
+
         if (count == 1) // exact match clear the line and print match
         {
           for (int j = 0; j < i; j++)
