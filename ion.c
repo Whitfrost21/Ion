@@ -454,6 +454,7 @@ int main() {
     printf("\r\n%s >", todisp);
     fflush(stdout);
     int i = 0;
+    int cursor_pos = 0;
     char c;
     while (1) // read until enter
     {
@@ -480,8 +481,17 @@ int main() {
       } else if (c == 127) // handle backspace
       {
         if (i > 0) {
-          i--;
-          write(STDOUT_FILENO, "\b \b", 3);
+          if (cursor_pos > 0) {
+            memmove(&line[cursor_pos - 1], &line[cursor_pos], i - cursor_pos);
+            cursor_pos--;
+            i--;
+            write(STDOUT_FILENO, "\b", 1);
+            write(STDOUT_FILENO, &line[cursor_pos], i - cursor_pos);
+            write(STDOUT_FILENO, " ", 1);
+            for (int k = 0; k <= (i - cursor_pos); k++) {
+              write(STDOUT_FILENO, "\x1b[D", 3);
+            }
+          }
         }
       } else if (c == 9) // tab autocomplete case
       {
@@ -535,14 +545,30 @@ int main() {
           case 'B':
             break;
           case 'C':
+            if (cursor_pos < i) {
+              cursor_pos++;
+              write(STDOUT_FILENO, "\x1b[C", 3); //shift cursor to right
+            }
             break;
           case 'D':
+            if (cursor_pos > 0) {
+              cursor_pos--;
+              write(STDOUT_FILENO, "\x1b[D", 3); //shift cursor to left
+            }
             break;
           }
         }
       } else {
-        write(STDOUT_FILENO, &c, 1); // print the typed char
-        line[i++] = c;
+        memmove(&line[cursor_pos + 1], &line[cursor_pos],
+                i - cursor_pos); // shift buffer right
+        line[cursor_pos] = c;    // store the char under cursor
+        i++;
+        cursor_pos++;
+        write(STDOUT_FILENO, &line[cursor_pos - 1],
+              i - cursor_pos + 1); // print the typed char
+        for (int k = 0; k < (i - cursor_pos); k++) {
+          write(STDOUT_FILENO, "\x1b[D", 3); // shift cursor back 
+        }
       }
     }
 
